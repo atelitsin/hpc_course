@@ -4,7 +4,7 @@
 #include <vector>
 
 
-void print_vector(std::vector<int> &arr) {
+void print_vector(const std::vector<int> &arr) {
     int length = arr.size();
     for (int i = 0; i < length; ++i) {
         std::cout << arr[i] << " ";
@@ -12,7 +12,7 @@ void print_vector(std::vector<int> &arr) {
 }
 
 
-std::vector<int> generate_vector(int length, int min_val, int max_val) {
+std::vector<int> generate_vector(const int length, const int min_val, const int max_val) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> distrib(min_val, max_val);
@@ -25,7 +25,7 @@ std::vector<int> generate_vector(int length, int min_val, int max_val) {
 }
 
 
-int vector_max_parallel(std::vector<int> &arr) {
+int vector_max_parallel(const std::vector<int> &arr) {
     // std::vector<int> owner(arr.size());
     int length = arr.size();
     int arr_max = std::numeric_limits<int>::lowest();
@@ -49,7 +49,7 @@ int vector_max_parallel(std::vector<int> &arr) {
 }
 
 
-int vector_max_single(std::vector<int> &arr) {
+int vector_max_single(const std::vector<int> &arr) {
     int arr_max = std::numeric_limits<int>::lowest();
     int length = arr.size();
     for (int i = 0; i < length; i++) {
