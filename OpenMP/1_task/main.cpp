@@ -4,8 +4,8 @@
 #include <vector>
 
 void print_vector(const std::vector<int> &arr) {
-    int length = arr.size();
-    for (int i = 0; i < length; ++i) {
+    size_t length = arr.size();
+    for (size_t i = 0; i < length; ++i) {
         std::cout << arr[i] << " ";
     }
 }
@@ -24,14 +24,14 @@ std::vector<int> generate_vector(const int length, const int min_val, const int 
 
 int vector_max_parallel(const std::vector<int> &arr) {
     // std::vector<int> owner(arr.size());
-    int length = arr.size();
+    size_t length = arr.size();
     int arr_max = std::numeric_limits<int>::lowest();
 #pragma omp parallel
     {
         int local_max = std::numeric_limits<int>::lowest();
 
 #pragma omp for
-        for (int i = 0; i < length; i++) {
+        for (size_t i = 0; i < length; i++) {
             local_max = std::max(arr[i], local_max);
             // owner[i] = omp_get_thread_num();
         }
@@ -47,15 +47,15 @@ int vector_max_parallel(const std::vector<int> &arr) {
 
 int vector_max_single(const std::vector<int> &arr) {
     int arr_max = std::numeric_limits<int>::lowest();
-    int length = arr.size();
-    for (int i = 0; i < length; i++) {
+    size_t length = arr.size();
+    for (size_t i = 0; i < length; i++) {
         arr_max = std::max(arr_max, arr[i]);
     }
     return arr_max;
 }
 
 int main() {
-    std::vector<int> a = generate_vector(1'000'000'000, -1000, 1000);
+    std::vector<int> a = generate_vector(100'000'000, -1000, 1000);
     // print_vector(a);
     double start = omp_get_wtime();
     vector_max_parallel(a);
