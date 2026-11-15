@@ -39,70 +39,82 @@ def main() -> None:
         )
     summary.to_csv(path.with_name("summary.csv"), index=False)
 
-    largest_n = summary.n.max()
-    largest = summary[summary.n == largest_n]
     outputs = [path.with_name("summary.csv")]
 
-    for format_name, format_data in summary.groupby("format"):
-        largest_format = largest[largest.format == format_name]
-        schedules = list(format_data.schedule.unique())
+    for format_name, format_data in sorted(summary.groupby("format")):
+        sizes = sorted(format_data.n.unique())
+        schedules = sorted(format_data.schedule.unique())
 
         fig, axes = plt.subplots(
+            len(sizes),
             len(schedules),
-            1,
-            figsize=(10, 4 * len(schedules)),
+            figsize=(5 * len(schedules), 3.8 * len(sizes)),
             squeeze=False,
         )
-        for axis, schedule in zip(axes[:, 0], schedules):
-            schedule_data = largest_format[largest_format.schedule == schedule]
-            for chunk, group in schedule_data.groupby("chunk"):
-                group = group.sort_values("threads")
+        for row, n in enumerate(sizes):
+            for column, schedule in enumerate(schedules):
+                axis = axes[row, column]
+                schedule_data = format_data[
+                    (format_data.n == n) & (format_data.schedule == schedule)
+                ]
+                for chunk, group in sorted(schedule_data.groupby("chunk")):
+                    group = group.sort_values("threads")
+                    axis.plot(
+                        group.threads,
+                        group.speedup,
+                        marker="o",
+                        label=f"chunk={chunk}",
+                    )
+                max_threads = int(schedule_data.threads.max())
                 axis.plot(
-                    group.threads,
-                    group.speedup,
-                    marker="o",
-                    label=f"chunk={chunk}",
+                    [1, max_threads],
+                    [1, max_threads],
+                    "--",
+                    color="gray",
+                    label="ideal",
                 )
-            axis.plot(
-                [1, largest_format.threads.max()],
-                [1, largest_format.threads.max()],
-                "--",
-                color="gray",
-                label="ideal",
-            )
-            axis.set_title(f"{format_name}: {schedule}, n={largest_n}")
-            axis.set_xlabel("threads")
-            axis.set_ylabel("median speedup")
-            axis.set_xticks(sorted(largest_format.threads.unique()))
-            axis.grid(alpha=0.3)
-            axis.legend()
+                axis.set_title(f"n={n}, {schedule}")
+                axis.set_xlabel("threads")
+                axis.set_ylabel("median speedup")
+                axis.set_xticks(sorted(schedule_data.threads.unique()))
+                axis.grid(alpha=0.3)
+                axis.legend(fontsize=8)
+        fig.suptitle(f"{format_name}: speedup for all matrix sizes")
         fig.tight_layout()
         output = path.with_name(f"speedup_{format_name}.png")
         fig.savefig(output, dpi=150)
         plt.close(fig)
         outputs.append(output)
 
-        fig, axis = plt.subplots(figsize=(10, 5))
-        for schedule, schedule_data in format_data.groupby("schedule"):
-            best = (
-                schedule_data.groupby(["n", "threads"])["median_seconds"]
-                .min()
-                .reset_index()
-            )
-            largest_schedule = best[best.n == largest_n].sort_values("threads")
-            axis.plot(
-                largest_schedule.threads,
-                largest_schedule.median_seconds,
-                marker="o",
-                label=schedule,
-            )
-        axis.set_title(f"{format_name}: best time by schedule, n={largest_n}")
-        axis.set_xlabel("threads")
-        axis.set_ylabel("median time, seconds")
-        axis.set_xticks(sorted(largest_format.threads.unique()))
-        axis.set_yscale("log")
-        axis.grid(alpha=0.3, which="both")
-        axis.legend()
+        fig, axes = plt.subplots(
+            len(sizes),
+            1,
+            figsize=(10, 3.8 * len(sizes)),
+            squeeze=False,
+        )
+        for row, n in enumerate(sizes):
+            axis = axes[row, 0]
+            size_data = format_data[format_data.n == n]
+            for schedule, schedule_data in sorted(size_data.groupby("schedule")):
+                best = (
+                    schedule_data.groupby("threads")["median_seconds"]
+                    .min()
+                    .sort_index()
+                )
+                axis.plot(
+                    best.index,
+                    best.values,
+                    marker="o",
+                    label=schedule,
+                )
+            axis.set_title(f"n={n}")
+            axis.set_xlabel("threads")
+            axis.set_ylabel("median time, seconds")
+            axis.set_xticks(sorted(size_data.threads.unique()))
+            axis.set_yscale("log")
+            axis.grid(alpha=0.3, which="both")
+            axis.legend()
+        fig.suptitle(f"{format_name}: best time by schedule for all sizes")
         fig.tight_layout()
         output = path.with_name(f"time_{format_name}.png")
         fig.savefig(output, dpi=150)
