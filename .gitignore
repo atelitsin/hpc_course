@@ -69,5 +69,8 @@ Testing/
 *.csv
 *.png
 
+# python
+__pycache__/
+
 # Tasks PDF
 *.pdf
