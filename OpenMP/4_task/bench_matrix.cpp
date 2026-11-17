@@ -1,4 +1,4 @@
-// Бенчмарк: максимум среди минимумов строк матрицы N x N.
+// Бенчмарк: максимум среди минимумов строк матрицы N x N (плоский массив).
 // Подключает matrix_minmax.hpp обычным #include (файл лежит рядом).
 // В stdout уходит только CSV, диагностика и ошибки идут в stderr.
 //
@@ -8,8 +8,7 @@
 //   reps         число замеров на точку        (по умолчанию 10)
 //   max_threads  максимум потоков              (по умолчанию omp_get_max_threads())
 //
-// В CSV колонка n это сторона матрицы N (число элементов N * N).
-// Память: матрица N x N из int, при N = 10000 около 400 МБ.
+// Память: непрерывный буфер N x N из int, при N = 10000 около 400 МБ.
 
 #include <algorithm>
 #include <chrono>
@@ -27,33 +26,30 @@
 #error "Соберите с флагом -fopenmp, иначе параллельная версия будет работать последовательно"
 #endif
 
-using Matrix = std::vector<std::vector<int>>;
-
 // Секунды по монотонным часам, разрешение в наносекунды
 double now_seconds() {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
 }
 
-Matrix generate_matrix(std::size_t rows, std::size_t columns, int min_val, int max_val,
-                       unsigned seed) {
+std::vector<int> generate_matrix(std::size_t rows, std::size_t columns, int min_val, int max_val,
+                                 unsigned seed) {
     std::mt19937 gen(seed);  // фиксированный сид: данные одинаковы при каждом запуске
     std::uniform_int_distribution<int> distrib(min_val, max_val);
 
-    Matrix matrix(rows, std::vector<int>(columns));
-    for (auto &row : matrix) {
-        for (int &x : row) {
-            x = distrib(gen);
-        }
+    std::vector<int> matrix(rows * columns);
+    for (int &x : matrix) {
+        x = distrib(gen);
     }
     return matrix;
 }
 
-// Независимый эталон (через std::min_element) для проверки правильности обеих версий
-int reference_max_of_mins(const Matrix &matrix) {
+// Независимый эталон (через std::min_element) для проверки правильности версий
+int reference_max_of_mins(const int *matrix, std::size_t rows, std::size_t columns) {
     int best = std::numeric_limits<int>::lowest();
-    for (const auto &row : matrix) {
-        best = std::max(best, *std::min_element(row.begin(), row.end()));
+    for (std::size_t i = 0; i < rows; ++i) {
+        const int *row = matrix + i * columns;
+        best = std::max(best, *std::min_element(row, row + columns));
     }
     return best;
 }
@@ -120,11 +116,11 @@ int main(int argc, char *argv[]) {
 
     try {
         for (std::size_t n : sizes) {
-            const Matrix matrix = generate_matrix(n, n, -1000, 1000, 1);  // один раз на размер
-            const int ref = reference_max_of_mins(matrix);                // эталон
+            const std::vector<int> matrix = generate_matrix(n, n, -1000, 1000, 1);
+            const int ref = reference_max_of_mins(matrix.data(), n, n);
 
-            auto run_seq = [&]() { return find_max_of_mins_single_thread(matrix, n, n); };
-            auto run_par = [&]() { return find_max_of_mins_multi_thread(matrix, n, n); };
+            auto run_seq = [&]() { return find_max_of_mins_single_thread(matrix.data(), n, n); };
+            auto run_par = [&]() { return find_max_of_mins_multi_thread(matrix.data(), n, n); };
 
             // база: последовательная версия (threads = 1)
             if (!bench("seq", run_seq, n, 1, reps, ref)) return 1;
