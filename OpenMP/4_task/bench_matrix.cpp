@@ -26,7 +26,6 @@
 #error "Соберите с флагом -fopenmp, иначе параллельная версия будет работать последовательно"
 #endif
 
-// Секунды по монотонным часам, разрешение в наносекунды
 double now_seconds() {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
@@ -34,7 +33,7 @@ double now_seconds() {
 
 std::vector<int> generate_matrix(std::size_t rows, std::size_t columns, int min_val, int max_val,
                                  unsigned seed) {
-    std::mt19937 gen(seed);  // фиксированный сид: данные одинаковы при каждом запуске
+    std::mt19937 gen(seed);
     std::uniform_int_distribution<int> distrib(min_val, max_val);
 
     std::vector<int> matrix(rows * columns);
@@ -44,7 +43,6 @@ std::vector<int> generate_matrix(std::size_t rows, std::size_t columns, int min_
     return matrix;
 }
 
-// Независимый эталон (через std::min_element) для проверки правильности версий
 int reference_max_of_mins(const int *matrix, std::size_t rows, std::size_t columns) {
     int best = std::numeric_limits<int>::lowest();
     for (std::size_t i = 0; i < rows; ++i) {
@@ -54,20 +52,17 @@ int reference_max_of_mins(const int *matrix, std::size_t rows, std::size_t colum
     return best;
 }
 
-// Делает reps замеров и печатает строки CSV. Возвращает false, если результат неверный.
-// Run: вызываемый объект без аргументов, возвращающий int.
 template <typename Run>
 bool bench(const char *variant, Run run, std::size_t n, int threads, int reps, int ref) {
     omp_set_num_threads(threads);
 
-    run();  // прогрев: создание пула потоков, подгрузка страниц памяти (в CSV не пишем)
+    run();
 
     for (int rep = 1; rep <= reps; rep++) {
         double start = now_seconds();
         int result = run();
-        double end = now_seconds();  // печать только после остановки таймера
+        double end = now_seconds();
 
-        // значения целые, поэтому сравнение точное
         if (result != ref) {
             std::cerr << "ОШИБКА: " << variant << ", N=" << n << ", потоков " << threads
                       << ": получили " << result << ", ожидали " << ref << '\n';
@@ -79,13 +74,12 @@ bool bench(const char *variant, Run run, std::size_t n, int threads, int reps, i
     return true;
 }
 
-// Разбирает список размеров вида "100,1000,10000"
 std::vector<std::size_t> parse_sizes(const char *s) {
     std::vector<std::size_t> sizes;
     char *end = nullptr;
     while (*s) {
         sizes.push_back(std::strtoull(s, &end, 10));
-        if (end == s) break;  // не число: прекращаем разбор
+        if (end == s) break;
         s = (*end == ',') ? end + 1 : end;
     }
     return sizes;
@@ -122,10 +116,8 @@ int main(int argc, char *argv[]) {
             auto run_seq = [&]() { return find_max_of_mins_single_thread(matrix.data(), n, n); };
             auto run_par = [&]() { return find_max_of_mins_multi_thread(matrix.data(), n, n); };
 
-            // база: последовательная версия (threads = 1)
             if (!bench("seq", run_seq, n, 1, reps, ref)) return 1;
 
-            // параллельная версия для 1..max_threads потоков
             for (int t = 1; t <= max_threads; t++) {
                 if (!bench("reduction", run_par, n, t, reps, ref)) return 1;
             }
