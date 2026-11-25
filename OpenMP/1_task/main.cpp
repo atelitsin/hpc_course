@@ -1,73 +1,39 @@
-#include <iostream>
-#include <omp.h>
-#include <random>
-#include <vector>
+#include "benchmark.hpp"
+#include "vector_max.hpp"
 
-void print_vector(const std::vector<int> &arr) {
-    size_t length = arr.size();
-    for (size_t i = 0; i < length; ++i) {
-        std::cout << arr[i] << " ";
+int main(int argc, char *argv[]) {
+    std::vector<std::size_t> sizes = (argc > 1)
+        ? parse_sizes(argv[1])
+        : std::vector<std::size_t>{1'000, 10'000, 100'000, 1'000'000, 10'000'000, 100'000'000};
+    int reps = (argc > 2) ? std::atoi(argv[2]) : 10;
+    int max_threads = (argc > 3) ? std::atoi(argv[3]) : omp_get_max_threads();
+
+    if (sizes.empty() || reps < 1 || max_threads < 1) {
+        std::cerr << "Использование: ./task1 [n1,n2,...] [reps] [max_threads]" << std::endl;
+        return 2;
     }
-}
 
-std::vector<int> generate_vector(const int length, const int min_val, const int max_val) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distrib(min_val, max_val);
+    std::cerr << "reps=" << reps << ", max_threads=" << max_threads << ", размеров: "
+              << sizes.size() << std::endl;
 
-    std::vector<int> result(length);
-    for (int i = 0; i < length; i++) {
-        result[i] = distrib(gen);
-    }
-    return result;
-}
+    omp_set_dynamic(0);
+    std::cout.precision(12);
+    std::cout << std::fixed;
+    std::cout << "variant,n,threads,rep,seconds,calls\n";
 
-int vector_max_parallel(const std::vector<int> &arr) {
-    // std::vector<int> owner(arr.size());
-    size_t length = arr.size();
-    int arr_max = std::numeric_limits<int>::lowest();
-#pragma omp parallel
-    {
-        int local_max = std::numeric_limits<int>::lowest();
+    for (std::size_t n : sizes) {
+        std::vector<int> a = generate_vector(n, -1000, 1000);  // один раз на размер
+        int ref = vector_max_sequential(a);  // эталон для проверки параллельных версий
 
-#pragma omp for
-        for (size_t i = 0; i < length; i++) {
-            local_max = std::max(arr[i], local_max);
-            // owner[i] = omp_get_thread_num();
+        // база: последовательная версия (threads = 1)
+        if (!bench("seq", vector_max_sequential, a, 1, reps, ref)) return 1;
+
+        // параллельные версии для 1..max_threads потоков
+        for (int t = 1; t <= max_threads; t++) {
+            if (!bench("critical", vector_max_parallel, a, t, reps, ref)) return 1;
+            if (!bench("reduction", vector_max_parallel_reduction, a, t, reps, ref)) return 1;
         }
-
-#pragma omp critical
-        {
-            arr_max = std::max(arr_max, local_max);
-        }
+        std::cerr << "n=" << n << " готово" << std::endl;
     }
-    // print_vector(owner);
-    return arr_max;
-}
-
-int vector_max_single(const std::vector<int> &arr) {
-    int arr_max = std::numeric_limits<int>::lowest();
-    size_t length = arr.size();
-    for (size_t i = 0; i < length; i++) {
-        arr_max = std::max(arr_max, arr[i]);
-    }
-    return arr_max;
-}
-
-int main() {
-    std::vector<int> a = generate_vector(100'000'000, -1000, 1000);
-    // print_vector(a);
-    double start = omp_get_wtime();
-    vector_max_parallel(a);
-    double end = omp_get_wtime();
-    double parallel_time = end - start;
-    std::cout << "Параллельный алгоритм:" << parallel_time << std::endl;
-    start = omp_get_wtime();
-    vector_max_single(a);
-    end = omp_get_wtime();
-    double single_time = end - start;
-    std::cout << "Однопоточный алгоритм:" << single_time << std::endl;
-    std::cout << "Параллельный алгоритм ускорил работу в " << single_time / parallel_time << "раз"
-              << std::endl;
-    std::cout << omp_get_max_threads();
+    return 0;
 }
