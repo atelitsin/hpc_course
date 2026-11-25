@@ -12,101 +12,19 @@ import pandas as pd
 
 import numpy as np
 from matplotlib.colors import TwoSlopeNorm
-from matplotlib.ticker import FuncFormatter, MaxNLocator
+from matplotlib.ticker import FuncFormatter
 
 
-STYLES = {"seq": ("#555555", "s"), "critical": ("#ba501b", "o"),
-          "reduction": ("#007398", "^")}
-
-
-def draw_curve(ax, frame, x, variant, metric):
-    frame = frame.sort_values(x)
-    color, marker = STYLES[variant]
-    if metric == "time":
-        y = frame["median_seconds"] * 1e6
-        ax.fill_between(frame[x], frame["q1_seconds"] * 1e6,
-                        frame["q3_seconds"] * 1e6, color=color, alpha=0.17)
-    else:
-        y = frame["speedup"]
-    ax.plot(frame[x], y.where(y > 0), color=color, marker=marker, ms=4,
-            lw=1.6, label=variant, zorder=3)
-
-
-def style_axes(ax, ylabel):
-    ax.set_yscale("log")
-    ax.set_ylabel(ylabel)
-    ax.grid(axis="y", which="major", color="#d7dcdf", lw=0.7)
-    ax.spines[["top", "right"]].set_visible(False)
-
-
-def save(fig, output, name):
-    for extension in ("png", "pdf"):
-        fig.savefig(output / f"{name}.{extension}", dpi=220, bbox_inches="tight")
-    plt.close(fig)
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scaling_plots import plot_scaling, save
 
 
 def plot_comparisons(summary, output, fixed_threads, cores):
+    plot_scaling(summary, output, fixed_threads, cores, "Поиск максимума")
     parallel = summary[summary["variant"] != "seq"]
-    seq = summary[summary["variant"] == "seq"]
     counts = sorted(parallel["threads"].unique())
     sizes = sorted(parallel["n"].unique())
-    selected = sorted({sizes[0], sizes[len(sizes) // 2], sizes[-1]})
-    fig, axes = plt.subplots(2, len(selected), squeeze=False,
-                             figsize=(4.3 * len(selected), 6.8), layout="constrained")
-    fig.suptitle("Поиск максимума · масштабирование по потокам", fontsize=16)
-    for column, n in enumerate(selected):
-        time, speed = axes[:, column]
-        subset = parallel[parallel["n"] == n]
-        reference = seq[seq["n"] == n].iloc[0]
-        time.axhspan(reference.q1_seconds * 1e6, reference.q3_seconds * 1e6,
-                     color="gray", alpha=0.12)
-        time.axhline(reference.median_seconds * 1e6, color="#555555", ls="--", label="seq")
-        for variant, group in subset.groupby("variant"):
-            draw_curve(time, group, "threads", variant, "time")
-            draw_curve(speed, group, "threads", variant, "speedup")
-        speed.plot(counts, counts, "--", color="#595959", label="Идеальное S = p")
-        speed.axhline(1, color="gray", ls=":")
-        time.set_title(f"n = {n:,}".replace(",", " "))
-        for ax, label in ((time, "Время, мкс"), (speed, "Ускорение S")):
-            style_axes(ax, label)
-            ax.set_xlim(counts[0] - 0.3, counts[-1] + 0.3)
-            if counts[-1] > cores:
-                ax.axvspan(cores, counts[-1] + 0.3, color="#87919b", alpha=0.11)
-                ax.axvline(cores, color="#69737b", lw=0.8)
-            ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=7))
-        speed.set_yscale("linear")
-        speed.set_ylim(0, max(counts[-1], subset["speedup"].max()) * 1.05)
-        if column == 0 and counts[-1] > 2:
-            zoom = speed.inset_axes([0.49, 0.09, 0.47, 0.34])
-            for variant, group in subset.groupby("variant"):
-                draw_curve(zoom, group, "threads", variant, "speedup")
-            zoom.set_yscale("log")
-            zoom.tick_params(labelsize=7)
-            zoom.set_title("Измерения · лог. шкала", fontsize=7)
-        speed.set_xlabel("Число потоков, p")
-    axes[0, 0].legend(fontsize=8)
-    axes[1, 0].legend(fontsize=8)
-    fig.supxlabel(f"Полосы времени — Q1–Q3. Серый фон — больше {cores} потоков ({cores} ядер).",
-                  fontsize=10)
-    save(fig, output, "threads")
-
-    fig, (time, speed) = plt.subplots(1, 2, figsize=(10.6, 4.6), layout="constrained")
-    fig.suptitle(f"Поиск максимума · влияние размера при p = {fixed_threads}", fontsize=15)
-    draw_curve(time, seq, "n", "seq", "time")
-    for variant, group in parallel[parallel["threads"] == fixed_threads].groupby("variant"):
-        draw_curve(time, group, "n", variant, "time")
-        draw_curve(speed, group, "n", variant, "speedup")
-    speed.axhline(fixed_threads, color="#555555", ls="--", label=f"Идеальное S = {fixed_threads}")
-    speed.axhline(1, color="gray", ls=":", label="S = 1")
-    for ax, label in ((time, "Время, мкс"), (speed, "Ускорение S")):
-        style_axes(ax, label)
-        ax.set_xscale("log")
-        ax.set_xlabel("Число элементов, n")
-        ax.legend(fontsize=9)
-    fig.supxlabel("Точки — медианы. Полосы на графике времени — центральные 50 % замеров.",
-                  fontsize=10)
-    save(fig, output, "sizes")
-
     comparison = parallel.pivot(index=["n", "threads"], columns="variant",
                                 values="median_seconds")
     comparison["critical_over_reduction"] = (
