@@ -1,58 +1,48 @@
-import sys
+"""Графики времени и ускорения скалярного произведения."""
+
+import argparse
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import pandas as pd
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scaling_plots import plot_scaling
 
-path = sys.argv[1] if len(sys.argv) > 1 else "bench.csv"
-stem = Path(path).stem  # bench.csv -> bench; bench_dot.csv -> bench_dot
-df = pd.read_csv(path)
 
-# база для каждого размера: медиана последовательной версии
-seq = df[df.variant == "seq"].groupby("n").seconds.median().rename("seq")
+def main():
+    default_csv = Path(__file__).resolve().parent / "results" / "bench_dot.csv"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("csv", nargs="?", type=Path, default=default_csv)
+    parser.add_argument("--threads", type=int, default=8,
+                        help="фиксированное число потоков на графике размеров")
+    parser.add_argument("--cores", type=int, default=8, help="число ядер машины замеров")
+    args = parser.parse_args()
 
-par = df[df.variant != "seq"]
-g = par.groupby(["variant", "n", "threads"]).seconds
-res = pd.DataFrame({"med": g.median(), "tmin": g.min(), "tmax": g.max()}).reset_index()
-res = res.join(seq, on="n")
-res["speedup"] = res.seq / res.med
-res["speedup_lo"] = res.seq / res.tmax   # худший прогон
-res["speedup_hi"] = res.seq / res.tmin   # лучший прогон
-res.to_csv(f"{stem}_summary.csv", index=False)
+    data = pd.read_csv(args.csv)
+    summary = data.groupby(["variant", "n", "threads"])["seconds"].agg(
+        median_seconds="median", q1_seconds=lambda sample: sample.quantile(0.25),
+        q3_seconds=lambda sample: sample.quantile(0.75), samples="size",
+    ).reset_index()
+    sequential = summary[summary["variant"] == "seq"].set_index("n")["median_seconds"]
+    variants = summary[summary["variant"] != "seq"]
+    if sequential.empty or not {"reduction"} <= set(variants["variant"]):
+        parser.error("Нужны замеры seq и reduction.")
+    if args.threads not in set(variants["threads"]):
+        parser.error("В CSV нет замеров для --threads. Укажи число потоков из файла.")
 
-max_t = int(res.threads.max())
-sizes = sorted(res.n.unique())
+    summary["sequential_seconds"] = summary["n"].map(sequential)
+    summary["speedup"] = (
+        summary["sequential_seconds"].where(summary["sequential_seconds"] > 0)
+        / summary["median_seconds"].where(summary["median_seconds"] > 0)
+    )
+    missing = summary["speedup"].isna().sum()
+    if missing:
+        print(f"Пропущено ускорений из-за нулевой или отсутствующей медианы: {missing}")
 
-# для печати: ускорение при максимуме потоков
-last = res[res.threads == max_t].pivot(index="n", columns="variant", values="speedup")
-print(f"Ускорение при {max_t} потоках:")
-print(last.round(2).to_string())
+    output = args.csv.parent
+    summary.to_csv(output / "summary.csv", index=False)
+    plot_scaling(summary, output, args.threads, args.cores, "Скалярное произведение")
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
 
-# слева: ускорение от числа потоков, по линии на каждый размер (reduction)
-red = res[res.variant == "reduction"]
-for n in sizes:
-    d = red[red.n == n]
-    ax1.plot(d.threads, d.speedup, "o-", label=f"n = {n:,}".replace(",", " "))
-ax1.plot(range(1, max_t + 1), range(1, max_t + 1), "--", color="gray", label="идеальное")
-ax1.set_xlabel("число потоков")
-ax1.set_ylabel("ускорение относительно последовательной версии")
-ax1.set_title("reduction: ускорение по потокам")
-ax1.legend(fontsize=8)
-ax1.grid(True)
-
-# справа: ускорение при максимуме потоков от размера массива
-for variant, d in res[res.threads == max_t].groupby("variant"):
-    d = d.sort_values("n")
-    ax2.plot(d.n, d.speedup, "o-", label=variant)
-ax2.axhline(1, color="gray", linestyle="--", label="без выигрыша")
-ax2.set_xscale("log")
-ax2.set_xlabel("размер массива n")
-ax2.set_ylabel(f"ускорение при {max_t} потоках")
-ax2.set_title("ускорение от размера массива")
-ax2.legend()
-ax2.grid(True, which="both", alpha=0.4)
-
-fig.tight_layout()
-fig.savefig(f"{stem}_speedup.png", dpi=150)
+if __name__ == "__main__":
+    main()
